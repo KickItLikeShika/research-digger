@@ -6,7 +6,7 @@ import backoff
 import requests
 from tqdm import tqdm
 
-from research_digger.utils import on_backoff
+from research_digger.utils import on_backoff, extract_paper_info, create_prompt, process_stream
 
 S2_API_KEY = os.getenv("S2_API_KEY")
 
@@ -14,7 +14,17 @@ S2_API_KEY = os.getenv("S2_API_KEY")
 @backoff.on_exception(
     backoff.expo, requests.exceptions.HTTPError, on_backoff=on_backoff
 )
-def search_for_papers(query, result_limit=20) -> Union[None, List[Dict]]:
+def search_for_papers(query: str, result_limit: int = 20) -> Union[None, List[Dict]]:
+    """
+    Search for papers using the Semantic Scholar API.
+
+    Args:
+        query (str): The search query string.
+        result_limit (int): The maximum number of results to return. Default is 20.
+
+    Returns:
+        Union[None, List[Dict]]: A list of dictionaries containing paper information, or None if no results are found.
+    """
     if not query:
         return None
 
@@ -42,54 +52,47 @@ def search_for_papers(query, result_limit=20) -> Union[None, List[Dict]]:
     return None if not total else results["data"]
 
 
-def generate_individual_summaries(papers, client, client_model, summary_length):
-    summaries = []
-    
-    for paper in tqdm(papers, total=len(papers)):
+def generate_individual_summaries(papers: List[Dict], client, client_model: str, summary_length: str) -> List[str]:
+    """
+    Generate individual summaries for a list of papers.
 
-        title = paper.get("title", "")
-        if not title:
-            print("Missing key: title")
+    Args:
+        papers (List[Dict]): A list of dictionaries containing paper information.
+        client: The client object to interact with the language model.
+        client_model (str): The model name to use for generating summaries.
+        summary_length (str): The desired length of the summary ("short", "medium", or "long").
 
-        abstract = paper.get("abstract", "")
-        if not abstract:
-            print("Missing key: abstract")
-
-        tldr = paper.get("tldr", {})
-        if not tldr:
-            print("Missing key: tldr")
-        else: 
-            tldr = tldr.get("text", "")
-
-        prompt = f"""
-        Title: {title}
-        Abstract: {abstract}
-        Quick Summary: {tldr}
-        """
-
-        # print(f"Prompt: {prompt}")
-
+    Returns:
+        List[str]: A list of summaries for each paper.
+    """
+    def generate_summary(paper: Dict) -> str:
+        title, abstract, tldr = extract_paper_info(paper)
+        prompt = create_prompt(title, abstract, tldr)
         stream = client.chat.completions.create(
             model=client_model,
             messages=[
-                # {"role": "system", "content": "You are an academic researcher. You are given a paper and asked to summarize it. Do not hallucinate or mention things that are not in the paper. Make sure the output looks like this: Title: {title of the paper}, then bullet points about what's in the paper."},
                 {"role": "system", "content": f"You are an academic researcher. You are given a paper and asked to summarize it. Follow a chain of thought process to ensure accuracy and completeness. First, identify the main points of the paper. Then, list the key findings. Finally, discuss the significance of these findings in the field. The summary length should be {summary_length}. Do not hallucinate or mention things that are not in the paper. Make sure the output looks like this: Title: <title of the paper>, then bullet points about what's in the paper."},
                 {"role": "user", "content": prompt},
             ],
             stream=True,
         )
+        return process_stream(stream)
 
-        summary = []
-        for chunk in stream:
-            if chunk.choices[0].delta.content is not None:
-                summary.append(chunk.choices[0].delta.content)
-        # print(f"Summary: {summary}")
-        summaries.append("".join(summary).strip())
-
-    return summaries
+    return [generate_summary(paper) for paper in tqdm(papers, total=len(papers))]
 
 
-def generate_generic_summary(papers_summaries, client, client_model):
+def generate_generic_summary(papers_summaries: List[str], client, client_model: str) -> str:
+    """
+    Generate a generic summary from individual paper summaries.
+
+    Args:
+        papers_summaries (List[str]): A list of individual paper summaries.
+        client: The client object to interact with the language model.
+        client_model (str): The model name to use for generating the generic summary.
+
+    Returns:
+        str: A single summary paragraph encapsulating all the main points and findings from the individual summaries.
+    """
     prompt = f"""
     Here are the papers summaries:
     {papers_summaries}
@@ -98,17 +101,10 @@ def generate_generic_summary(papers_summaries, client, client_model):
     generic_summary = client.chat.completions.create(
         model=client_model,
         messages=[
-            # {"role": "system", "content": "You are an academic researcher. You are given a list of papers and a summary of each one. Your task is to produce a final single summary paragraph that encapsulates the main points and findings from all the paper summaries. Do not hallucinate or mention things that are not in the summaries."},
             {"role": "system", "content": "You are an academic researcher. You are given a list of papers and a summary of each one. Follow a chain of thought process to ensure accuracy and completeness. First, identify the main points of each paper summary. Then, list the key findings from each paper summary. Finally, ONLY produce a final single summary paragraph that encapsulates all the main points and findings from all the paper summaries. Do not hallucinate or mention things that are not in the summaries."},
             {"role": "user", "content": prompt},
         ],
         stream=True,
     )
 
-    summary = []    
-    for chunk in generic_summary:
-        if chunk.choices[0].delta.content is not None:
-            summary.append(chunk.choices[0].delta.content)
-
-    return "".join(summary).strip()
-
+    return process_stream(generic_summary)
