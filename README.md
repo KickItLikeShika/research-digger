@@ -68,7 +68,7 @@ Blog Post: https://kickitlikeshika.github.io/2024/09/05/research-digger.html
 
 ### Example Command
 ```sh
-python research_digger/main.py --research_area "Natural Language Processing" --papers_limit 10 --summary_length "medium" --model "gpt-4o"
+python launch_research_digger.py --research_area "Natural Language Processing" --papers_limit 10 --summary_length "medium" --model "gpt-4o"
 ```
 
 ### Limitations and Future Work
