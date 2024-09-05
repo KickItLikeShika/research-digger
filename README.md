@@ -14,7 +14,7 @@ This tool is ideal for researchers, students, and professionals who need to quic
 
 1. **Clone the Repository**:
     ```sh
-    git clone <repository_url>
+    git clone https://github.com/KickItLikeShika/research-digger/tree/main
     cd research_digger
     ```
 
