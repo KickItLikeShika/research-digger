@@ -2,4 +2,3 @@ requests
 backoff
 openai
 tqdm
-anthropic
